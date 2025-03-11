@@ -42,23 +42,28 @@ def upload_video():
         return "No video file uploaded", 400
     video = request.files['video']
     video_path = os.path.join(app.config['UPLOAD_FOLDER'], 'input_video.mp4')
+    output_path = os.path.join(app.config['UPLOAD_FOLDER'], 'output_video.mp4')
     video.save(video_path)
 
-    output_path = os.path.join(app.config['UPLOAD_FOLDER'], 'output_video.mp4')
-    process_video(video_path, output_path)
+    try:
+        process_video(video_path, output_path)
+    except Exception as e:
+        return f"Error procesando el video: {str(e)}", 500
 
     video_url = url_for('static', filename='output_video.mp4')
     return render_template('index.html', video_url=video_url)
 
 def process_video(input_path, output_path):
     cap = cv2.VideoCapture(input_path)
+    if not cap.isOpened():
+        raise ValueError("No se pudo abrir el video de entrada")
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, 20.0, (int(cap.get(3)), int(cap.get(4))))
     
     prev_frame = None
     frame_count = 0
     motion_count = 0
-    face_detections = []  # Para persistencia de rostros
+    face_detections = []
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -67,9 +72,8 @@ def process_video(input_path, output_path):
 
         small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
         frame_count += 1
-        process_this_frame = frame_count % 5 == 0
+        process_this_frame = frame_count % 10 == 0
 
-        # Mostrar rostros persistentes
         for detection in face_detections[:]:
             top, right, bottom, left, name, lifespan = detection
             cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
@@ -79,7 +83,6 @@ def process_video(input_path, output_path):
                 face_detections.remove(detection)
 
         if process_this_frame:
-            # Reconocimiento facial
             rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
             face_locations = face_recognition.face_locations(rgb_frame, number_of_times_to_upsample=1)
             face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
@@ -98,7 +101,6 @@ def process_video(input_path, output_path):
                 left *= 2
                 face_detections.append([top, right, bottom, left, name, 10])
 
-            # Detección de movimiento
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             gray = cv2.GaussianBlur(gray, (21, 21), 0)
             if prev_frame is None:
